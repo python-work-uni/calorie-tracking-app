@@ -1,0 +1,3040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="CaloFlow — a precision TDEE, BMR and macro-nutrient calculator with daily food logging. Works fully offline.">
+  <meta name="theme-color" content="#0b0f19">
+  <title>CaloFlow - Premium TDEE & Macro Calculator</title>
+  
+  <!-- Modern Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Service Worker Registration — enables offline caching (Cache-First) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then((registration) => {
+            console.log('[App] Service Worker registered. Scope:', registration.scope);
+          })
+          .catch((err) => {
+            console.warn('[App] Service Worker registration failed:', err);
+          });
+      });
+    }
+  </script>
+
+  <style>
+    /* Reset & CSS Custom Properties */
+    :root {
+      --bg-gradient-start: #0b0f19;
+      --bg-gradient-end: #030712;
+      --card-bg: rgba(30, 41, 59, 0.45);
+      --card-bg-hover: rgba(30, 41, 59, 0.65);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-border-active: rgba(59, 130, 246, 0.6);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-glow: rgba(59, 130, 246, 0.3);
+      --accent-emerald: #10b981;
+      --accent-emerald-glow: rgba(16, 185, 129, 0.25);
+      --accent-violet: #8b5cf6;
+      
+      /* Macro Palette */
+      --macro-protein: #38bdf8;
+      --macro-carbs: #f59e0b;
+      --macro-fats: #f43f5e;
+      
+      --transition-fast: 0.2s ease;
+      --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      
+      --font-outfit: 'Outfit', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-outfit);
+      background: linear-gradient(135deg, var(--bg-gradient-start), var(--bg-gradient-end));
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+      overflow-x: hidden;
+    }
+
+    /* Ambient background glow elements */
+    .glow-blob {
+      position: absolute;
+      width: 400px;
+      height: 400px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+      filter: blur(40px);
+      z-index: -1;
+      pointer-events: none;
+    }
+    .glow-blob-1 { top: -100px; left: -100px; }
+    .glow-blob-2 { bottom: -100px; right: -100px; }
+
+    /* App Layout */
+    .app-container {
+      width: 100%;
+      max-width: 1100px;
+      z-index: 10;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+      position: relative;
+    }
+
+    .logo-container {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .logo-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, var(--primary), var(--accent-violet));
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
+    }
+
+    .logo-icon svg {
+      width: 22px;
+      height: 22px;
+      fill: white;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 800;
+      background: linear-gradient(to right, #ffffff, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.5px;
+    }
+
+    header p {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      font-weight: 400;
+      margin-top: 0.25rem;
+    }
+
+    /* Bento Grid */
+    .grid-container {
+      display: grid;
+      grid-template-columns: 1.1fr 1.9fr;
+      gap: 1.5rem;
+      width: 100%;
+    }
+
+    @media (max-width: 900px) {
+      .grid-container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Glass Cards */
+    .glass-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 2rem;
+      transition: background var(--transition-fast), border var(--transition-fast), transform var(--transition-fast);
+    }
+
+    .glass-card:hover {
+      background: var(--card-bg-hover);
+    }
+
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-main);
+    }
+
+    .card-title svg {
+      width: 20px;
+      height: 20px;
+      fill: var(--primary);
+    }
+
+    /* Form Fields Styling */
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    /* Custom Switch / Segmented Controls */
+    .segmented-control {
+      display: flex;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 3px;
+      position: relative;
+    }
+
+    .segment-option {
+      flex: 1;
+      text-align: center;
+      padding: 0.5rem 0;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      z-index: 2;
+      border-radius: 9px;
+      transition: color var(--transition-fast);
+      color: var(--text-muted);
+      user-select: none;
+    }
+
+    .segment-option.active {
+      color: var(--text-main);
+      background: var(--primary);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+    }
+
+    /* Input Controls */
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-field {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 0.75rem 1rem;
+      font-family: var(--font-outfit);
+      font-size: 1rem;
+      font-weight: 500;
+      color: var(--text-main);
+      outline: none;
+      transition: border var(--transition-fast), box-shadow var(--transition-fast);
+    }
+
+    .input-field:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+
+    .input-suffix {
+      position: absolute;
+      right: 1rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    select.input-field {
+      appearance: none;
+      cursor: pointer;
+      padding-right: 2.5rem;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2394a3b8'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd' /%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 1rem center;
+      background-size: 1.25rem;
+    }
+
+    /* Result Dashboard Grid */
+    .dashboard-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    /* Hero Summary Card: BMR & TDEE Ring */
+    .hero-summary-card {
+      display: grid;
+      grid-template-columns: 1.2fr 1.8fr;
+      gap: 2rem;
+      align-items: center;
+      background: radial-gradient(ellipse at top right, rgba(59, 130, 246, 0.1), transparent 60%), var(--card-bg);
+    }
+
+    @media (max-width: 600px) {
+      .hero-summary-card {
+        grid-template-columns: 1fr;
+        text-align: center;
+        gap: 1.5rem;
+      }
+    }
+
+    /* SVG Radial Gauge */
+    .gauge-wrapper {
+      position: relative;
+      width: 160px;
+      height: 160px;
+      margin: 0 auto;
+    }
+
+    .gauge-svg {
+      transform: rotate(-90deg);
+      width: 100%;
+      height: 100%;
+    }
+
+    .gauge-track {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.05);
+      stroke-width: 12;
+    }
+
+    .gauge-progress {
+      fill: none;
+      stroke: var(--primary);
+      stroke-width: 12;
+      stroke-linecap: round;
+      stroke-dasharray: 440;
+      stroke-dashoffset: 440;
+      transition: stroke-dashoffset 1s ease-out, stroke var(--transition-fast);
+    }
+
+    .gauge-content {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      width: 100%;
+    }
+
+    .gauge-value {
+      font-size: 1.75rem;
+      font-weight: 800;
+      color: var(--text-main);
+      line-height: 1;
+    }
+
+    .gauge-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 2px;
+      font-weight: 600;
+    }
+
+    /* Hero Stats text */
+    .hero-stats-info {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .stat-badge-row {
+      display: flex;
+      gap: 1.5rem;
+    }
+
+    .stat-badge {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .stat-badge-val {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .stat-badge-lbl {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .hero-description {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Goal Mode Cards Selection */
+    .goals-wrapper {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+    }
+
+    @media (max-width: 600px) {
+      .goals-wrapper {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .goal-select-card {
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 1.25rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      position: relative;
+      transition: transform var(--transition-fast), border var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
+      user-select: none;
+    }
+
+    .goal-select-card:hover {
+      background: rgba(30, 41, 59, 0.5);
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-2px);
+    }
+
+    .goal-select-card.active {
+      background: rgba(59, 130, 246, 0.08);
+      border-color: var(--primary);
+      box-shadow: 0 4px 20px rgba(59, 130, 246, 0.12);
+    }
+
+    .goal-select-card.active::after {
+      content: '';
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+    }
+
+    .goal-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 0.25rem;
+    }
+
+    .goal-select-card.active .goal-label {
+      color: var(--primary);
+    }
+
+    .goal-calories {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .goal-offset {
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+
+    .offset-maintain { color: var(--text-muted); }
+    .offset-cut { color: var(--macro-fats); }
+    .offset-bulk { color: var(--accent-emerald); }
+
+    /* Macros & Details Section */
+    .details-grid {
+      display: grid;
+      grid-template-columns: 1.3fr 1.7fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 680px) {
+      .details-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Macro Splits Card */
+    .macro-card {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .macro-bar-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .macro-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+
+    .macro-name-pct {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .macro-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .dot-protein { background-color: var(--macro-protein); }
+    .dot-carbs { background-color: var(--macro-carbs); }
+    .dot-fats { background-color: var(--macro-fats); }
+
+    .macro-amount {
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+
+    .macro-amount span {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .macro-bar-outer {
+      height: 8px;
+      background: rgba(15, 23, 42, 0.6);
+      border-radius: 4px;
+      overflow: hidden;
+      width: 100%;
+    }
+
+    .macro-bar-inner {
+      height: 100%;
+      border-radius: 4px;
+      width: 0%;
+      transition: width var(--transition-smooth);
+    }
+
+    .bar-protein {
+      background: var(--macro-protein);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+    }
+    .bar-carbs {
+      background: var(--macro-carbs);
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+    }
+    .bar-fats {
+      background: var(--macro-fats);
+      box-shadow: 0 0 10px rgba(244, 63, 94, 0.4);
+    }
+
+    /* Actions & Split Presets Container */
+    .config-actions-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 1.25rem;
+    }
+
+    /* CTA Button styling */
+    .btn-save-goal {
+      width: 100%;
+      background: linear-gradient(135deg, var(--accent-emerald), #059669);
+      color: white;
+      border: none;
+      border-radius: 14px;
+      padding: 1rem 1.5rem;
+      font-family: var(--font-outfit);
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      box-shadow: 0 10px 25px var(--accent-emerald-glow);
+      transition: transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast);
+      outline: none;
+    }
+
+    .btn-save-goal:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 30px rgba(16, 185, 129, 0.4);
+      filter: brightness(1.05);
+    }
+
+    .btn-save-goal:active {
+      transform: translateY(1px);
+    }
+
+    .btn-save-goal svg {
+      width: 18px;
+      height: 18px;
+      fill: white;
+    }
+
+    /* Custom Toast Notifications */
+    .toast {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid var(--accent-emerald);
+      border-radius: 14px;
+      padding: 1rem 1.5rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 15px rgba(16, 185, 129, 0.2);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      transform: translateY(150px);
+      opacity: 0;
+      transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease;
+      z-index: 1000;
+      max-width: 350px;
+    }
+
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .toast-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--accent-emerald-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .toast-icon svg {
+      width: 14px;
+      height: 14px;
+      fill: var(--accent-emerald);
+    }
+
+    .toast-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--text-main);
+      margin-bottom: 2px;
+    }
+
+    .toast-body {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    /* Footer styling */
+    footer {
+      margin-top: 3rem;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    footer a {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* Tabbed Navigation Layout */
+    .nav-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 4px;
+      width: fit-content;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .nav-tab {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-family: var(--font-outfit);
+      font-size: 1rem;
+      font-weight: 600;
+      padding: 0.75rem 1.5rem;
+      cursor: pointer;
+      border-radius: 12px;
+      transition: all var(--transition-fast);
+    }
+
+    .nav-tab:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .nav-tab.active {
+      color: var(--text-main);
+      background: var(--primary);
+      box-shadow: 0 4px 15px var(--primary-glow);
+    }
+
+    .nav-tab svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    /* View Swapper */
+    .view-section {
+      display: none;
+      width: 100%;
+    }
+
+    .view-section.active {
+      display: block;
+      animation: fadeIn 0.4s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Warning Banner */
+    .warning-banner {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid var(--macro-carbs);
+      border-radius: 16px;
+      padding: 1rem 1.5rem;
+      margin-bottom: 2rem;
+      font-size: 0.95rem;
+      color: var(--text-main);
+    }
+
+    .warning-banner svg {
+      width: 20px;
+      height: 20px;
+      fill: var(--macro-carbs);
+      flex-shrink: 0;
+    }
+
+    .warning-banner strong a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    .warning-banner strong a:hover {
+      text-decoration: underline;
+    }
+
+    /* Food Logger Form elements */
+    .optional-macros-container {
+      margin-top: 0.5rem;
+      border-top: 1px solid var(--card-border);
+      padding-top: 1rem;
+      animation: slideDown 0.3s ease-out;
+    }
+
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .form-row-three {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+    }
+
+    .macros-toggle-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      padding: 0.5rem 0;
+      margin-top: 1.25rem;
+      user-select: none;
+      transition: color var(--transition-fast);
+    }
+
+    .macros-toggle-header:hover {
+      color: var(--text-main);
+    }
+
+    .macros-toggle-header svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+      transition: transform var(--transition-fast);
+    }
+
+    .macros-toggle-header.expanded svg {
+      transform: rotate(180deg);
+    }
+
+    /* Live Math Preview and Blueprint Card */
+    .math-preview-card {
+      margin-top: 1.5rem;
+    }
+
+    .math-preview-output {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1rem;
+      font-family: monospace;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: var(--text-main);
+      margin-bottom: 1rem;
+      word-break: break-all;
+    }
+
+    .math-preview-output .preview-item {
+      margin-bottom: 0.4rem;
+    }
+
+    .math-preview-output .preview-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .math-preview-output .highlight-cals {
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.08);
+      padding: 0.25rem 0.5rem;
+      border-radius: 6px;
+      display: inline-block;
+      margin-top: 0.25rem;
+    }
+
+    .code-examples-details {
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: var(--primary);
+      font-weight: 600;
+      margin-top: 0.5rem;
+    }
+
+    .code-examples-details summary {
+      outline: none;
+      user-select: none;
+      margin-bottom: 0.5rem;
+    }
+
+    .code-examples-details summary:hover {
+      color: var(--text-main);
+    }
+
+    .code-examples-box {
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1rem;
+      overflow-x: auto;
+      max-height: 250px;
+    }
+
+    .code-examples-box pre {
+      margin: 0;
+    }
+
+    .code-examples-box code {
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #a7f3d0;
+    }
+
+    /* Food log lists and cards */
+    .log-list-card {
+      margin-top: 1.5rem;
+    }
+
+    .food-log-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      max-height: 350px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .food-log-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .food-log-list::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.2);
+      border-radius: 3px;
+    }
+
+    .food-log-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+    }
+
+    .food-log-list::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .food-item-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(15, 23, 42, 0.3);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 0.75rem 1rem;
+      transition: all var(--transition-fast);
+      animation: entryFadeIn 0.3s ease;
+    }
+
+    @keyframes entryFadeIn {
+      from { opacity: 0; transform: translateY(-5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .food-item-card:hover {
+      background: rgba(30, 41, 59, 0.4);
+      border-color: rgba(255, 255, 255, 0.12);
+      transform: translateX(2px);
+    }
+
+    .food-item-info {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .food-item-name {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--text-main);
+    }
+
+    .food-item-meta {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .food-item-macros-micro {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .food-item-right {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .food-item-cals {
+      font-weight: 700;
+      font-size: 1.05rem;
+      color: var(--text-main);
+    }
+
+    .btn-delete-food {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px;
+      border-radius: 8px;
+      transition: all var(--transition-fast);
+    }
+
+    .btn-delete-food:hover {
+      color: var(--macro-fats);
+      background: rgba(244, 63, 94, 0.15);
+    }
+
+    .btn-delete-food svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+    }
+
+    .tracker-summary-card {
+      background: radial-gradient(ellipse at top right, rgba(59, 130, 246, 0.08), transparent 60%), var(--card-bg);
+    }
+
+    /* Offline Status Banner */
+    .offline-banner {
+      display: none;
+      align-items: center;
+      gap: 0.75rem;
+      background: linear-gradient(135deg, rgba(244, 63, 94, 0.15), rgba(239, 68, 68, 0.10));
+      border: 1px solid rgba(244, 63, 94, 0.4);
+      border-radius: 14px;
+      padding: 0.85rem 1.25rem;
+      margin-bottom: 1.5rem;
+      color: #fca5a5;
+      font-size: 0.9rem;
+      font-weight: 500;
+      animation: slideDown 0.3s ease;
+    }
+    .offline-banner.show { display: flex; }
+    .offline-banner svg {
+      width: 20px;
+      height: 20px;
+      fill: #f87171;
+      flex-shrink: 0;
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* History View styling */
+    .history-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      width: 100%;
+    }
+
+    .history-controls-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1.5rem;
+      padding: 1.5rem;
+    }
+
+    @media (max-width: 768px) {
+      .history-controls-card {
+        flex-direction: column;
+        align-items: stretch;
+      }
+    }
+
+    .search-wrapper {
+      position: relative;
+      flex-grow: 1;
+      display: flex;
+      align-items: center;
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 1rem;
+      width: 18px;
+      height: 18px;
+      fill: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .search-wrapper .input-field {
+      padding-left: 2.75rem;
+    }
+
+    .history-actions {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 480px) {
+      .history-actions {
+        flex-direction: column;
+      }
+    }
+
+    .btn-history-action {
+      padding: 0.75rem 1.25rem;
+      font-size: 0.9rem;
+      border-radius: 12px;
+      width: auto;
+    }
+
+    @media (max-width: 480px) {
+      .btn-history-action {
+        width: 100%;
+      }
+    }
+
+    .history-table-card {
+      padding: 1.5rem 2rem;
+    }
+
+    .history-table-wrapper {
+      width: 100%;
+      overflow-x: auto;
+      margin-top: 1rem;
+      border-radius: 14px;
+      border: 1px solid var(--card-border);
+      background: rgba(15, 23, 42, 0.4);
+    }
+
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.9rem;
+    }
+
+    .history-table th {
+      background: rgba(15, 23, 42, 0.8);
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .history-table td {
+      padding: 0.85rem 1rem;
+      color: var(--text-main);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      white-space: nowrap;
+    }
+
+    .history-table tbody tr {
+      transition: background-color var(--transition-fast);
+    }
+
+    .history-table tbody tr:hover {
+      background-color: rgba(255, 255, 255, 0.02);
+    }
+
+    .history-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .macro-col-p {
+      color: var(--macro-protein) !important;
+      font-weight: 500;
+    }
+
+    .macro-col-c {
+      color: var(--macro-carbs) !important;
+      font-weight: 500;
+    }
+
+    .macro-col-f {
+      color: var(--macro-fats) !important;
+      font-weight: 500;
+    }
+
+    .empty-history-state {
+      text-align: center;
+      color: var(--text-muted);
+      padding: 3rem 1rem;
+      font-size: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Offline status banner — shown automatically by JS when navigator.onLine is false -->
+  <div class="offline-banner" id="offline-banner" role="status" aria-live="polite">
+    <svg viewBox="0 0 24 24"><path d="M22.99 2.01L2.78 22.22 1.36 20.8 5.59 16.57A10.97 10.97 0 0 0 1 12C2.72 6.88 7.36 3.25 12.99 3.25c2.16 0 4.18.6 5.9 1.63l2.81-2.81zM12 5a7 7 0 0 1 7 7c0 1.17-.3 2.27-.8 3.24L16.53 13.6A4.97 4.97 0 0 0 12 7a4.97 4.97 0 0 0-3.24 1.19L7.1 6.53A6.97 6.97 0 0 1 12 5zM5 12c0-1.35.38-2.6 1.03-3.68L4.35 6.64A9.97 9.97 0 0 0 2 12a9.97 9.97 0 0 0 2.35 6.47l1.42-1.42A7.96 7.96 0 0 1 5 12zm7 5c-1.1 0-2.1-.36-2.9-.96L7.53 17.6A6.97 6.97 0 0 0 12 19a7 7 0 0 0 5.91-3.24l-1.53-1.54A4.97 4.97 0 0 1 12 17z"/></svg>
+    You are currently offline — CaloFlow is running from cache. All data is saved locally.
+  </div>
+
+  <!-- Ambient visual blobs -->
+  <div class="glow-blob glow-blob-1"></div>
+  <div class="glow-blob glow-blob-2"></div>
+
+  <div class="app-container">
+    <header>
+      <div class="logo-container">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24">
+            <path d="M12,3A9,9 0 0,0 3,12A9,9 0 0,0 12,21A9,9 0 0,0 21,12A9,9 0 0,0 12,3M12,6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6M12,8.5A3.5,3.5 0 0,0 8.5,12A3.5,3.5 0 0,0 12,15.5A3.5,3.5 0 0,0 15.5,12A3.5,3.5 0 0,0 12,8.5Z" />
+          </svg>
+        </div>
+        <h1>CaloFlow</h1>
+      </div>
+      <p>Precision Mifflin-St Jeor TDEE & Macronutrient Calculator</p>
+    </header>
+
+    <!-- Tabbed Navigation -->
+    <nav class="nav-tabs">
+      <button class="nav-tab active" id="tab-tracker" type="button">
+        <svg viewBox="0 0 24 24"><path d="M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3M19,19H5V5H19V19M17,12H12V17H17V12M12,7H7V10H12V7M7,12H10V17H7V12M14,7H17V10H14V7Z"/></svg>
+        Daily Tracker
+      </button>
+      <button class="nav-tab" id="tab-calculator" type="button">
+        <svg viewBox="0 0 24 24"><path d="M19,3H5C3.9,3 3,3.9 3,5V19C3,20.1 3.9,21 5,21H19C20.1,21 21,20.1 21,19V5C21,3.9 20.1,3 19,3M19,19H5V5H19V19M11,7H7V9H11V7M17,7H13V9H17V7M11,11H7V13H11V11M17,11H13V13H17V11M11,15H7V17H11V15M17,15H13V17H17V15Z"/></svg>
+        TDEE Calculator
+      </button>
+      <button class="nav-tab" id="tab-history" type="button">
+        <svg viewBox="0 0 24 24"><path d="M13.5,8H12V13L16.28,15.54L17,14.33L13.5,12.25V8M19,12A7,7 0 0,1 12,19A7,7 0 0,1 5,12A7,7 0 0,1 12,5A7,7 0 0,1 19,12M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/></svg>
+        History Log
+      </button>
+    </nav>
+
+    <!-- Tracker View (Active by default) -->
+    <div class="view-section active" id="tracker-view">
+      <!-- Unconfigured Goals Warning Banner -->
+      <div id="goals-warning-banner" class="warning-banner" style="display: none;">
+        <svg viewBox="0 0 24 24"><path d="M12,2L1,21H23L12,2M12,6L19.8,19H4.2L12,6M11,10V14H13V10H11M11,16V18H13V16H11Z"/></svg>
+        <span>No custom daily goal found. Defaulting to 2,000 kcal. <strong><a href="#" id="link-to-calc">Set up your profile now</a></strong>.</span>
+      </div>
+
+      <div class="grid-container">
+        <!-- Left Column: Logger & Math Preview -->
+        <div class="tracker-left-col">
+          <!-- Food Logger Form -->
+          <section class="glass-card">
+            <h2 class="card-title">
+              <svg viewBox="0 0 24 24"><path d="M19 13H13V19H11V13H5V11H11V5H13V11H19V13Z"/></svg>
+              Log Food Entry
+            </h2>
+            
+            <form id="food-log-form" novalidate onsubmit="return false;">
+              <!-- Food Name -->
+              <div class="form-group">
+                <label for="food-name">Food Name</label>
+                <div class="input-wrapper">
+                  <!-- maxlength prevents absurdly long strings that could break layout or storage -->
+                  <input type="text" id="food-name" class="input-field" required maxlength="120" autocomplete="off" placeholder="e.g. Oatmeal, Chicken breast">
+                </div>
+              </div>
+
+              <!-- Energy per 100g -->
+              <div class="form-row">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label for="food-energy">Energy per 100g</label>
+                  <div class="input-wrapper">
+                    <!-- max="9000" guards against physically impossible energy density values -->
+                    <input type="number" id="food-energy" class="input-field" required min="0" max="9000" step="0.1" inputmode="decimal" placeholder="e.g. 350">
+                  </div>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label>Energy Unit</label>
+                  <div class="segmented-control" id="energy-unit-control">
+                    <div class="segment-option active" data-value="kcal" id="energy-kcal-opt">kcal</div>
+                    <div class="segment-option" data-value="kJ" id="energy-kj-opt">kJ</div>
+                  </div>
+                  <input type="hidden" id="energy-unit" value="kcal">
+                </div>
+              </div>
+
+              <!-- Consumed Mass -->
+              <div class="form-row">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label for="food-mass">Consumed Mass</label>
+                  <div class="input-wrapper">
+                    <!-- max="5000" (5 kg) is a generous upper bound for a single consumed portion -->
+                    <input type="number" id="food-mass" class="input-field" required min="0.1" max="5000" step="0.1" inputmode="decimal" placeholder="e.g. 150">
+                  </div>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label>Mass Unit</label>
+                  <div class="segmented-control" id="mass-unit-control">
+                    <div class="segment-option active" data-value="g" id="mass-g-opt">grams</div>
+                    <div class="segment-option" data-value="oz" id="mass-oz-opt">ounces</div>
+                  </div>
+                  <input type="hidden" id="mass-unit" value="g">
+                </div>
+              </div>
+
+              <!-- Optional Macros per 100g -->
+              <div class="macros-toggle-header" id="macros-toggle-btn">
+                <span>Add Macros (Optional per 100g)</span>
+                <svg viewBox="0 0 24 24"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg>
+              </div>
+
+              <div class="optional-macros-container" id="optional-macros-container" style="display: none;">
+                <div class="form-row-three">
+                  <div class="form-group">
+                    <label for="food-protein" style="color: var(--macro-protein);">Protein / 100g</label>
+                    <div class="input-wrapper">
+                      <!-- Combined protein+carbs+fats per 100g cannot realistically exceed 100g -->
+                      <input type="number" id="food-protein" class="input-field" min="0" max="100" step="0.1" inputmode="decimal" placeholder="g">
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="food-carbs" style="color: var(--macro-carbs);">Carbs / 100g</label>
+                    <div class="input-wrapper">
+                      <input type="number" id="food-carbs" class="input-field" min="0" max="100" step="0.1" inputmode="decimal" placeholder="g">
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="food-fats" style="color: var(--macro-fats);">Fats / 100g</label>
+                    <div class="input-wrapper">
+                      <input type="number" id="food-fats" class="input-field" min="0" max="100" step="0.1" inputmode="decimal" placeholder="g">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <button type="submit" id="btn-log-food" class="btn-save-goal" style="background: linear-gradient(135deg, var(--primary), var(--accent-violet)); box-shadow: 0 10px 25px var(--primary-glow); margin-top: 1.25rem;">
+                <svg viewBox="0 0 24 24"><path d="M19 13H13V19H11V13H5V11H11V5H13V11H19V13Z"/></svg>
+                Log Food Entry
+              </button>
+            </form>
+          </section>
+
+          <!-- Real-time Math Preview & Inline Code Panel -->
+          <section class="glass-card math-preview-card">
+            <h3 class="card-title" style="font-size: 1.1rem; margin-bottom: 0.75rem;">
+              <svg viewBox="0 0 24 24"><path d="M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3M19 19H5V5H19V19M11 7H7V9H11V7M17 7H13V9H17V7M11 11H7V13H11V11M17 11H13V13H17V11M11 15H7V17H11V15M17 15H13V17H17V15Z"/></svg>
+              Calculation Blueprint
+            </h3>
+            
+            <div id="live-math-preview" class="math-preview-output">
+              Enter food details to view real-time conversion math.
+            </div>
+
+            <details class="code-examples-details">
+              <summary>Show JavaScript Core Math Example</summary>
+              <div class="code-examples-box">
+                <pre><code class="language-js">// Unit Conversion Math Example
+const KCAL_TO_KJ = 4.184;
+const OZ_TO_GRAMS = 28.3495;
+
+function processFood(entry) {
+  // Convert Energy to kcal/100g
+  let kcalPer100g = entry.rawEnergy;
+  if (entry.energyUnit === 'kJ') {
+    kcalPer100g = entry.rawEnergy / KCAL_TO_KJ;
+  }
+
+  // Convert Mass to grams
+  let massGrams = entry.rawMass;
+  if (entry.massUnit === 'oz') {
+    massGrams = entry.rawMass * OZ_TO_GRAMS;
+  }
+
+  // Calculate Consumed Values
+  let calories = (kcalPer100g * massGrams) / 100;
+  let protein = (entry.proteinPer100g * massGrams) / 100;
+  let carbs = (entry.carbsPer100g * massGrams) / 100;
+  let fats = (entry.fatsPer100g * massGrams) / 100;
+
+  return {
+    calories: Math.round(calories),
+    protein: Math.round(protein * 10) / 10,
+    carbs: Math.round(carbs * 10) / 10,
+    fats: Math.round(fats * 10) / 10,
+    massGrams: Math.round(massGrams * 10) / 10
+  };
+}</code></pre>
+              </div>
+            </details>
+          </section>
+        </div>
+
+        <!-- Right Column: Dashboard Rings & Today's Logs -->
+        <div class="tracker-right-col">
+          <!-- Daily Summary Card -->
+          <div class="glass-card hero-summary-card tracker-summary-card">
+            <div class="gauge-wrapper">
+              <svg class="gauge-svg" viewBox="0 0 160 160">
+                <circle class="gauge-track" cx="80" cy="80" r="70"></circle>
+                <circle class="gauge-progress" id="tracker-gauge-progress" cx="80" cy="80" r="70"></circle>
+              </svg>
+              <div class="gauge-content">
+                <div class="gauge-value" id="tracker-gauge-val">0</div>
+                <div class="gauge-label" id="tracker-gauge-status">kcal left</div>
+              </div>
+            </div>
+
+            <div class="hero-stats-info">
+              <div class="stat-badge-row">
+                <div class="stat-badge">
+                  <span class="stat-badge-val" id="summary-goal-val">0</span>
+                  <span class="stat-badge-lbl">Calorie Goal</span>
+                </div>
+                <div class="stat-badge">
+                  <span class="stat-badge-val" id="summary-eaten-val">0</span>
+                  <span class="stat-badge-lbl">Consumed</span>
+                </div>
+              </div>
+              
+              <!-- Macros Progress Tracker -->
+              <div class="tracker-macros-progress">
+                <!-- Protein Progress -->
+                <div class="macro-bar-group">
+                  <div class="macro-header-row">
+                    <span class="macro-name-pct">
+                      <span class="macro-dot dot-protein"></span>
+                      <span>Protein</span>
+                    </span>
+                    <span class="macro-ratio" id="tracker-ratio-protein">0 / 0g</span>
+                  </div>
+                  <div class="macro-bar-outer">
+                    <div class="macro-bar-inner bar-protein" id="tracker-bar-protein"></div>
+                  </div>
+                </div>
+
+                <!-- Carbs Progress -->
+                <div class="macro-bar-group">
+                  <div class="macro-header-row">
+                    <span class="macro-name-pct">
+                      <span class="macro-dot dot-carbs"></span>
+                      <span>Carbs</span>
+                    </span>
+                    <span class="macro-ratio" id="tracker-ratio-carbs">0 / 0g</span>
+                  </div>
+                  <div class="macro-bar-outer">
+                    <div class="macro-bar-inner bar-carbs" id="tracker-bar-carbs"></div>
+                  </div>
+                </div>
+
+                <!-- Fats Progress -->
+                <div class="macro-bar-group">
+                  <div class="macro-header-row">
+                    <span class="macro-name-pct">
+                      <span class="macro-dot dot-fats"></span>
+                      <span>Fats</span>
+                    </span>
+                    <span class="macro-ratio" id="tracker-ratio-fats">0 / 0g</span>
+                  </div>
+                  <div class="macro-bar-outer">
+                    <div class="macro-bar-inner bar-fats" id="tracker-bar-fats"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Today's Log Card -->
+          <section class="glass-card log-list-card">
+            <h3 class="card-title">
+              <svg viewBox="0 0 24 24"><path d="M13,9H11V7H13V9M13,17H11V11H13V17M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/></svg>
+              Today's Log
+            </h3>
+            
+            <div class="food-log-list" id="food-log-list">
+              <!-- Filled dynamically via JS -->
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <!-- Calculator View (Hidden by default) -->
+    <div class="view-section" id="calculator-view">
+      <div class="grid-container">
+        <!-- Calculator input card (Left column) -->
+        <section class="glass-card">
+        <h2 class="card-title">
+          <svg viewBox="0 0 24 24"><path d="M19,3H5C3.9,3,3,3.9,3,5v14c0,1.1,0.9,2,2,2h14c1.1,0,2-0.9,2-2V5C21,3.9,20.1,3,19,3z M19,19H5V5h14V19z M11,7H7v2h4V7z M17,7h-4v2h4V7z M11,11H7v2h4V11z M17,11h-4v2h4V11z M11,15H7v2h4V15z M17,15h-4v2h4V15z"/></svg>
+          Configure Profile
+        </h2>
+        
+        <form id="tdee-form" onsubmit="return false;">
+          
+          <!-- Sex Selection -->
+          <div class="form-group">
+            <label>Sex</label>
+            <div class="segmented-control" id="sex-control">
+              <div class="segment-option active" data-value="male" id="sex-male-opt">Male</div>
+              <div class="segment-option" data-value="female" id="sex-female-opt">Female</div>
+            </div>
+            <input type="hidden" id="sex" value="male">
+          </div>
+
+          <!-- Age Input -->
+          <div class="form-group">
+            <label for="age">Age</label>
+            <div class="input-wrapper">
+              <input type="number" id="age" class="input-field" required min="15" max="100" step="1" value="25" inputmode="numeric" placeholder="e.g. 25">
+              <span class="input-suffix">yrs</span>
+            </div>
+          </div>
+
+          <!-- Height Toggle & Input -->
+          <div class="form-group">
+            <label>Height Unit</label>
+            <div class="segmented-control" id="height-unit-control" style="margin-bottom: 0.5rem;">
+              <div class="segment-option active" data-value="metric" id="height-metric-opt">Metric (cm)</div>
+              <div class="segment-option" data-value="imperial" id="height-imperial-opt">Imperial (ft/in)</div>
+            </div>
+            
+            <!-- Metric Height Container -->
+            <div id="height-metric-container" class="input-wrapper">
+              <input type="number" id="height-cm" class="input-field" required min="100" max="250" step="1" value="175" inputmode="numeric" placeholder="e.g. 175">
+              <span class="input-suffix">cm</span>
+            </div>
+
+            <!-- Imperial Height Container -->
+            <div id="height-imperial-container" class="form-row" style="display: none;">
+              <div class="input-wrapper">
+                <input type="number" id="height-ft" class="input-field" min="3" max="8" step="1" value="5" inputmode="numeric" placeholder="ft">
+                <span class="input-suffix">ft</span>
+              </div>
+              <div class="input-wrapper">
+                <input type="number" id="height-in" class="input-field" min="0" max="11" step="1" value="9" inputmode="numeric" placeholder="in">
+                <span class="input-suffix">in</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Weight Toggle & Input -->
+          <div class="form-group">
+            <label>Weight Unit</label>
+            <div class="segmented-control" id="weight-unit-control" style="margin-bottom: 0.5rem;">
+              <div class="segment-option active" data-value="metric" id="weight-metric-opt">Metric (kg)</div>
+              <div class="segment-option" data-value="imperial" id="weight-imperial-opt">Imperial (lbs)</div>
+            </div>
+
+            <div class="input-wrapper">
+              <input type="number" id="weight" class="input-field" required min="30" max="300" step="0.1" value="70" inputmode="decimal" placeholder="e.g. 70">
+              <span class="input-suffix" id="weight-unit-label">kg</span>
+            </div>
+          </div>
+
+          <!-- Activity Level -->
+          <div class="form-group">
+            <label for="activity">Activity Level</label>
+            <select id="activity" class="input-field">
+              <option value="sedentary">Sedentary (desk job, minimal exercise)</option>
+              <option value="light">Lightly Active (light exercise 1-3 days/wk)</option>
+              <option value="moderate" selected>Moderately Active (exercise 3-5 days/wk)</option>
+              <option value="heavy">Very Active (heavy exercise 6-7 days/wk)</option>
+              <option value="extreme">Extra Active (athletic job or 2x daily workouts)</option>
+            </select>
+          </div>
+
+        </form>
+      </section>
+
+      <!-- Calculator Output Column (Right column) -->
+      <section class="dashboard-container">
+        
+        <!-- Hero BMR & TDEE Ring Card -->
+        <div class="glass-card hero-summary-card">
+          <div class="gauge-wrapper">
+            <svg class="gauge-svg" viewBox="0 0 160 160">
+              <circle class="gauge-track" cx="80" cy="80" r="70"></circle>
+              <circle class="gauge-progress" id="gauge-progress" cx="80" cy="80" r="70"></circle>
+            </svg>
+            <div class="gauge-content">
+              <div class="gauge-value" id="gauge-val">0</div>
+              <div class="gauge-label">TDEE kcal</div>
+            </div>
+          </div>
+
+          <div class="hero-stats-info">
+            <div class="stat-badge-row">
+              <div class="stat-badge">
+                <span class="stat-badge-val" id="bmr-val">0</span>
+                <span class="stat-badge-lbl">Basal Metabolic Rate</span>
+              </div>
+            </div>
+            <p class="hero-description">
+              Based on your details, your body burns <strong id="bmr-desc-val">0</strong> kcal just to stay alive (BMR). Factoring in physical activity, your total daily energy expenditure is <strong id="tdee-desc-val">0</strong> kcal.
+            </p>
+          </div>
+        </div>
+
+        <!-- Target Selector (Maintenance, Cutting, Bulking) -->
+        <div class="goals-wrapper">
+          <!-- Cutting -->
+          <div class="goal-select-card" id="goal-cut" data-goal-type="cutting">
+            <div class="goal-label">Lose Weight</div>
+            <div class="goal-calories" id="calories-cut">0</div>
+            <div class="goal-offset offset-cut">-500 kcal (Cut)</div>
+          </div>
+
+          <!-- Maintain -->
+          <div class="goal-select-card active" id="goal-maintain" data-goal-type="maintenance">
+            <div class="goal-label">Maintain Weight</div>
+            <div class="goal-calories" id="calories-maintain">0</div>
+            <div class="goal-offset offset-maintain">0 kcal (Maintain)</div>
+          </div>
+
+          <!-- Bulking -->
+          <div class="goal-select-card" id="goal-bulk" data-goal-type="bulking">
+            <div class="goal-label">Gain Weight</div>
+            <div class="goal-calories" id="calories-bulk">0</div>
+            <div class="goal-offset offset-bulk">+500 kcal (Bulk)</div>
+          </div>
+        </div>
+
+        <!-- Details Grid: Macros & Presets -->
+        <div class="details-grid">
+          
+          <!-- Macronutrient Splits -->
+          <div class="glass-card macro-card">
+            <h3 class="card-title" style="font-size: 1.1rem; margin-bottom: 0.75rem;">
+              <svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12A6,6 0 0,0 12,18A6,6 0 0,0 18,12A6,6 0 0,0 12,6M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8Z"/></svg>
+              Daily Macro Split
+            </h3>
+
+            <!-- Protein -->
+            <div class="macro-bar-group">
+              <div class="macro-header-row">
+                <div class="macro-name-pct">
+                  <span class="macro-dot dot-protein"></span>
+                  <span>Protein</span>
+                  <span style="color: var(--text-muted); font-weight: 500;" id="pct-protein">30%</span>
+                </div>
+                <div class="macro-amount" id="val-protein">0<span>g</span></div>
+              </div>
+              <div class="macro-bar-outer">
+                <div class="macro-bar-inner bar-protein" id="bar-protein"></div>
+              </div>
+            </div>
+
+            <!-- Carbohydrates -->
+            <div class="macro-bar-group">
+              <div class="macro-header-row">
+                <div class="macro-name-pct">
+                  <span class="macro-dot dot-carbs"></span>
+                  <span>Carbs</span>
+                  <span style="color: var(--text-muted); font-weight: 500;" id="pct-carbs">40%</span>
+                </div>
+                <div class="macro-amount" id="val-carbs">0<span>g</span></div>
+              </div>
+              <div class="macro-bar-outer">
+                <div class="macro-bar-inner bar-carbs" id="bar-carbs"></div>
+              </div>
+            </div>
+
+            <!-- Fats -->
+            <div class="macro-bar-group">
+              <div class="macro-header-row">
+                <div class="macro-name-pct">
+                  <span class="macro-dot dot-fats"></span>
+                  <span>Fats</span>
+                  <span style="color: var(--text-muted); font-weight: 500;" id="pct-fats">30%</span>
+                </div>
+                <div class="macro-amount" id="val-fats">0<span>g</span></div>
+              </div>
+              <div class="macro-bar-outer">
+                <div class="macro-bar-inner bar-fats" id="bar-fats"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Configuration & CTA action card -->
+          <div class="glass-card config-actions-card">
+            <div>
+              <h3 class="card-title" style="font-size: 1.1rem; margin-bottom: 0.75rem;">
+                <svg viewBox="0 0 24 24"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.47,5.34 14.86,5.08L14.47,2.42C14.43,2.18 14.22,2 13.97,2H9.97C9.72,2 9.51,2.18 9.47,2.42L9.08,5.08C8.47,5.34 7.9,5.66 7.38,6.05L4.89,5.05C4.67,4.96 4.4,5.05 4.27,5.27L2.27,8.73C2.15,8.95 2.2,9.22 2.39,9.37L4.5,11C4.46,11.34 4.44,11.67 4.44,12C4.44,12.33 4.46,12.66 4.5,12.97L2.39,14.63C2.2,14.78 2.15,15.05 2.27,15.27L4.27,18.73C4.4,18.95 4.67,19.04 4.89,18.95L7.38,17.95C7.9,18.34 8.47,18.66 9.08,18.92L9.47,21.58C9.51,21.82 9.72,22 9.97,22H13.97C14.22,22 14.43,21.82 14.47,21.58L14.86,18.92C15.47,18.66 16.04,18.34 16.56,17.95L19.05,18.95C19.27,19.04 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
+                Split Presets
+              </h3>
+              
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="macro-preset">Ratio Breakdown</label>
+                <select id="macro-preset" class="input-field">
+                  <option value="balanced" selected>Balanced (30% P / 40% C / 30% F)</option>
+                  <option value="high-protein">High Protein (40% P / 30% C / 30% F)</option>
+                  <option value="low-carb">Low Carb / Athletic (35% P / 25% C / 40% F)</option>
+                  <option value="keto">Ketogenic (20% P / 5% C / 75% F)</option>
+                </select>
+              </div>
+            </div>
+
+            <button type="button" id="btn-save" class="btn-save-goal">
+              <svg viewBox="0 0 24 24"><path d="M15,9H5V5H15M12,19A3,3 0 0,1 9,16A3,3 0 0,1 12,13A3,3 0 0,1 15,16A3,3 0 0,1 12,19M17,3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3Z"/></svg>
+              Save as Daily Goal
+            </button>
+          </div>
+
+        </div>
+
+      </section>
+    </div>
+    </div>
+
+    <!-- History View (Hidden by default) -->
+    <div class="view-section" id="history-view">
+      <div class="history-container">
+        <!-- Control Bar: Search & Export/Import Buttons -->
+        <div class="glass-card history-controls-card">
+          <div class="search-wrapper">
+            <svg class="search-icon" viewBox="0 0 24 24">
+              <path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/>
+            </svg>
+            <input type="text" id="history-search-input" class="input-field" placeholder="Search foods in history...">
+          </div>
+          
+          <div class="history-actions">
+            <button id="btn-export-csv" class="btn-save-goal btn-history-action" style="background: linear-gradient(135deg, var(--primary), var(--accent-violet)); box-shadow: 0 8px 20px var(--primary-glow);">
+              <svg viewBox="0 0 24 24"><path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M16,11V15H13V18H11V15H8L12,11L16,11Z"/></svg>
+              Export CSV
+            </button>
+            <button id="btn-export-json" class="btn-save-goal btn-history-action" style="background: linear-gradient(135deg, #475569, #334155); box-shadow: 0 8px 20px rgba(71, 85, 105, 0.2);">
+              <svg viewBox="0 0 24 24"><path d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/></svg>
+              Export JSON
+            </button>
+            <button id="btn-import-json" class="btn-save-goal btn-history-action" style="background: linear-gradient(135deg, #475569, #334155); box-shadow: 0 8px 20px rgba(71, 85, 105, 0.2);">
+              <svg viewBox="0 0 24 24"><path d="M9,16V10H5L12,3L19,10H15V16H9M5,20V18H19V20H5Z"/></svg>
+              Import JSON
+            </button>
+            <input type="file" id="import-json-file" accept=".json" style="display: none;">
+          </div>
+        </div>
+
+        <!-- History Table Card -->
+        <section class="glass-card history-table-card">
+          <h3 class="card-title">
+            <svg viewBox="0 0 24 24"><path d="M13,3A9,9 0 0,0 4,12H1L4.89,15.89L4.9,16L9,12H6A7,7 0 0,1 13,5A7,7 0 0,1 20,12A7,7 0 0,1 13,19C11.07,19 9.32,18.21 8.06,16.94L6.64,18.36C8.27,20 10.5,21 13,21A9,9 0 0,0 22,12A9,9 0 0,0 13,3M12,8V13L16.28,15.54L17,14.33L13.5,12.25V8H12Z"/></svg>
+            Historical Entries
+          </h3>
+          <div class="history-table-wrapper">
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th>Date & Time</th>
+                  <th>Food Name</th>
+                  <th>Mass</th>
+                  <th>Calories</th>
+                  <th>Protein</th>
+                  <th>Carbs</th>
+                  <th>Fats</th>
+                  <th style="text-align: center;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="history-table-body">
+                <!-- Rendered dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <footer>
+      CaloFlow Energy Core. Values calculated via Mifflin-St Jeor Formula.<br>
+      Daily Goal target stored in browser local storage.
+    </footer>
+  </div>
+
+  <!-- Custom Success Toast -->
+  <div class="toast" id="save-toast">
+    <div class="toast-icon">
+      <svg viewBox="0 0 24 24"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>
+    </div>
+    <div>
+      <div class="toast-title">Daily Goal Saved!</div>
+      <div class="toast-body">Your target has been stored locally.</div>
+    </div>
+  </div>
+
+  <!-- Custom Food Log Success Toast -->
+  <div class="toast" id="log-toast" style="border-color: var(--primary);">
+    <div class="toast-icon" style="background: var(--primary-glow);">
+      <svg viewBox="0 0 24 24" style="fill: var(--primary);"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>
+    </div>
+    <div>
+      <div class="toast-title">Food Entry Logged!</div>
+      <div class="toast-body">Added to today's food log successfully.</div>
+    </div>
+  </div>
+
+  <!-- Custom Import Success Toast -->
+  <div class="toast" id="import-success-toast" style="border-color: var(--accent-emerald);">
+    <div class="toast-icon" style="background: var(--accent-emerald-glow);">
+      <svg viewBox="0 0 24 24" style="fill: var(--accent-emerald);"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>
+    </div>
+    <div>
+      <div class="toast-title">Import Successful!</div>
+      <div class="toast-body" id="import-success-toast-body">Your backup has been loaded.</div>
+    </div>
+  </div>
+
+  <!-- Custom Import Error Toast -->
+  <div class="toast" id="import-error-toast" style="border-color: var(--macro-fats);">
+    <div class="toast-icon" style="background: rgba(244, 63, 94, 0.15);">
+      <svg viewBox="0 0 24 24" style="fill: var(--macro-fats);"><path d="M12,2L1,21H23L12,2M12,6L19.8,19H4.2L12,6M11,10V14H13V10H11M11,16V18H13V16H11Z"/></svg>
+    </div>
+    <div>
+      <div class="toast-title">Import Failed!</div>
+      <div class="toast-body" id="import-error-toast-body">Invalid backup file format.</div>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * Mifflin-St Jeor Step-by-Step Example Calculation
+     * 
+     * Target Profile:
+     * - Age: 21 years old
+     * - Sex: Male
+     * - Height: 180 cm
+     * - Weight: 80 kg
+     * - Activity Level: Moderately Active (Multiplier: 1.55)
+     * 
+     * Step 1: Calculate Basal Metabolic Rate (BMR)
+     * Equation for Men: BMR = 10 * Weight(kg) + 6.25 * Height(cm) - 5 * Age(years) + 5
+     * Calculation:
+     * BMR = 10 * 80 + 6.25 * 180 - 5 * 21 + 5
+     * BMR = 800 + 1125 - 105 + 5
+     * BMR = 1825 kcal/day
+     * 
+     * Step 2: Calculate Total Daily Energy Expenditure (TDEE)
+     * Equation: TDEE = BMR * ActivityMultiplier
+     * Calculation:
+     * TDEE = 1825 * 1.55 = 2828.75 kcal/day (rounds to 2829 kcal)
+     * 
+     * Step 3: Calculate Targets
+     * - Maintenance: 2829 kcal/day (equal to TDEE)
+     * - Cutting: 2829 - 500 = 2329 kcal/day
+     * - Bulking: 2829 + 500 = 3329 kcal/day
+     * 
+     * Step 4: Calculate Macro Splits (example for Cutting Target: 2329 kcal, Balanced split: 30% Protein, 40% Carbs, 30% Fat)
+     * - Protein: 30% of 2329 kcal = 698.7 kcal. In grams = 698.7 / 4 kcal/g = 174.675g -> 175g
+     * - Carbs: 40% of 2329 kcal = 931.6 kcal. In grams = 931.6 / 4 kcal/g = 232.9g -> 233g
+     * - Fats: 30% of 2329 kcal = 698.7 kcal. In grams = 698.7 / 9 kcal/g = 77.633g -> 78g
+     * Total target payload matching schema:
+     * {
+     *   "age": 21,
+     *   "sex": "male",
+     *   "height": 180,
+     *   "weight": 80,
+     *   "activityLevel": "moderate",
+     *   "dailyCalorieGoal": 2329,
+     *   "bmr": 1825,
+     *   "tdee": 2829,
+     *   "macroSplits": {
+     *     "protein": 175,
+     *     "carbs": 233,
+     *     "fats": 78
+     *   }
+     * }
+     */
+
+    // State Variables
+    let currentCalculation = {
+      bmr: 0,
+      tdee: 0,
+      maintenance: 0,
+      cutting: 0,
+      bulking: 0
+    };
+    
+    let activeGoalType = 'maintenance'; // 'maintenance' | 'cutting' | 'bulking'
+    let heightUnit = 'metric'; // 'metric' | 'imperial'
+    let weightUnit = 'metric'; // 'metric' | 'imperial'
+    let activeTab = 'tracker'; // 'tracker' | 'calculator'
+
+    // DOM Elements
+    const elements = {
+      age: document.getElementById('age'),
+      sex: document.getElementById('sex'),
+      heightCm: document.getElementById('height-cm'),
+      heightFt: document.getElementById('height-ft'),
+      heightIn: document.getElementById('height-in'),
+      weight: document.getElementById('weight'),
+      weightUnitLabel: document.getElementById('weight-unit-label'),
+      activity: document.getElementById('activity'),
+      macroPreset: document.getElementById('macro-preset'),
+      
+      bmrVal: document.getElementById('bmr-val'),
+      bmrDescVal: document.getElementById('bmr-desc-val'),
+      tdeeDescVal: document.getElementById('tdee-desc-val'),
+      gaugeVal: document.getElementById('gauge-val'),
+      gaugeProgress: document.getElementById('gauge-progress'),
+      
+      caloriesCut: document.getElementById('calories-cut'),
+      caloriesMaintain: document.getElementById('calories-maintain'),
+      caloriesBulk: document.getElementById('calories-bulk'),
+      
+      goalCut: document.getElementById('goal-cut'),
+      goalMaintain: document.getElementById('goal-maintain'),
+      goalBulk: document.getElementById('goal-bulk'),
+      
+      pctProtein: document.getElementById('pct-protein'),
+      pctCarbs: document.getElementById('pct-carbs'),
+      pctFats: document.getElementById('pct-fats'),
+      valProtein: document.getElementById('val-protein'),
+      valCarbs: document.getElementById('val-carbs'),
+      valFats: document.getElementById('val-fats'),
+      
+      barProtein: document.getElementById('bar-protein'),
+      barCarbs: document.getElementById('bar-carbs'),
+      barFats: document.getElementById('bar-fats'),
+      
+      btnSave: document.getElementById('btn-save'),
+      saveToast: document.getElementById('save-toast'),
+      
+      // Segmented Controls options
+      sexMaleOpt: document.getElementById('sex-male-opt'),
+      sexFemaleOpt: document.getElementById('sex-female-opt'),
+      heightMetricOpt: document.getElementById('height-metric-opt'),
+      heightImperialOpt: document.getElementById('height-imperial-opt'),
+      heightMetricContainer: document.getElementById('height-metric-container'),
+      heightImperialContainer: document.getElementById('height-imperial-container'),
+      weightMetricOpt: document.getElementById('weight-metric-opt'),
+      weightImperialOpt: document.getElementById('weight-imperial-opt'),
+
+      // Tab Navigation Elements
+      tabTracker: document.getElementById('tab-tracker'),
+      tabCalculator: document.getElementById('tab-calculator'),
+      trackerView: document.getElementById('tracker-view'),
+      calculatorView: document.getElementById('calculator-view'),
+      goalsWarningBanner: document.getElementById('goals-warning-banner'),
+      linkToCalc: document.getElementById('link-to-calc'),
+
+      // Food Logging Form Elements
+      foodLogForm: document.getElementById('food-log-form'),
+      foodName: document.getElementById('food-name'),
+      foodEnergy: document.getElementById('food-energy'),
+      energyUnit: document.getElementById('energy-unit'),
+      energyKcalOpt: document.getElementById('energy-kcal-opt'),
+      energyKjOpt: document.getElementById('energy-kj-opt'),
+      foodMass: document.getElementById('food-mass'),
+      massUnit: document.getElementById('mass-unit'),
+      massGOpt: document.getElementById('mass-g-opt'),
+      massOzOpt: document.getElementById('mass-oz-opt'),
+      
+      macrosToggleBtn: document.getElementById('macros-toggle-btn'),
+      optionalMacrosContainer: document.getElementById('optional-macros-container'),
+      foodProtein: document.getElementById('food-protein'),
+      foodCarbs: document.getElementById('food-carbs'),
+      foodFats: document.getElementById('food-fats'),
+      btnLogFood: document.getElementById('btn-log-food'),
+
+      // Live Math Preview Element
+      liveMathPreview: document.getElementById('live-math-preview'),
+
+      // Tracker Summary Dashboard Elements
+      trackerGaugeProgress: document.getElementById('tracker-gauge-progress'),
+      trackerGaugeVal: document.getElementById('tracker-gauge-val'),
+      trackerGaugeStatus: document.getElementById('tracker-gauge-status'),
+      summaryGoalVal: document.getElementById('summary-goal-val'),
+      summaryEatenVal: document.getElementById('summary-eaten-val'),
+      trackerRatioProtein: document.getElementById('tracker-ratio-protein'),
+      trackerRatioCarbs: document.getElementById('tracker-ratio-carbs'),
+      trackerRatioFats: document.getElementById('tracker-ratio-fats'),
+      trackerBarProtein: document.getElementById('tracker-bar-protein'),
+      trackerBarCarbs: document.getElementById('tracker-bar-carbs'),
+      trackerBarFats: document.getElementById('tracker-bar-fats'),
+
+      // Food Log List Container
+      foodLogList: document.getElementById('food-log-list'),
+
+      // History View Elements
+      tabHistory: document.getElementById('tab-history'),
+      historyView: document.getElementById('history-view'),
+      historyTableBody: document.getElementById('history-table-body'),
+      historySearchInput: document.getElementById('history-search-input'),
+      btnExportCsv: document.getElementById('btn-export-csv'),
+      btnExportJson: document.getElementById('btn-export-json'),
+      btnImportJson: document.getElementById('btn-import-json'),
+      importJsonFile: document.getElementById('import-json-file'),
+      importSuccessToast: document.getElementById('import-success-toast'),
+      importSuccessToastBody: document.getElementById('import-success-toast-body'),
+      importErrorToast: document.getElementById('import-error-toast'),
+      importErrorToastBody: document.getElementById('import-error-toast-body')
+    };
+
+    // Constants
+    const ACTIVITY_MULTIPLIERS = {
+      sedentary: 1.2,
+      light: 1.375,
+      moderate: 1.55,
+      heavy: 1.725,
+      extreme: 1.9
+    };
+
+    const MACRO_PRESETS = {
+      balanced: { p: 0.30, c: 0.40, f: 0.30 },
+      'high-protein': { p: 0.40, c: 0.30, f: 0.30 },
+      'low-carb': { p: 0.35, c: 0.25, f: 0.40 },
+      keto: { p: 0.20, c: 0.05, f: 0.75 }
+    };
+
+    // Initialize Application
+    window.addEventListener('DOMContentLoaded', () => {
+      setupEventListeners();
+      loadSavedGoal();
+      calculate();
+      updateDashboardTotals();
+      updateLiveMathPreview();
+    });
+
+    // Event Listeners Setup
+    function setupEventListeners() {
+      // Input event listener triggers TDEE calculation
+      const triggerInputs = [elements.age, elements.heightCm, elements.heightFt, elements.heightIn, elements.weight, elements.activity, elements.macroPreset];
+      triggerInputs.forEach(el => {
+        el.addEventListener('input', calculate);
+        el.addEventListener('change', calculate);
+      });
+
+      // Sex toggle listener
+      elements.sexMaleOpt.addEventListener('click', () => setSex('male'));
+      elements.sexFemaleOpt.addEventListener('click', () => setSex('female'));
+
+      // Height Unit toggle listener
+      elements.heightMetricOpt.addEventListener('click', () => setHeightUnit('metric'));
+      elements.heightImperialOpt.addEventListener('click', () => setHeightUnit('imperial'));
+
+      // Weight Unit toggle listener
+      elements.weightMetricOpt.addEventListener('click', () => setWeightUnit('metric'));
+      elements.weightImperialOpt.addEventListener('click', () => setWeightUnit('imperial'));
+
+      // Goal selection cards listeners
+      elements.goalCut.addEventListener('click', () => setGoalType('cutting'));
+      elements.goalMaintain.addEventListener('click', () => setGoalType('maintenance'));
+      elements.goalBulk.addEventListener('click', () => setGoalType('bulking'));
+
+      // Save Daily Goal button
+      elements.btnSave.addEventListener('click', saveGoalToLocalStorage);
+
+      // --- Tab Navigation Event Listeners ---
+      elements.tabTracker.addEventListener('click', () => switchTab('tracker'));
+      elements.tabCalculator.addEventListener('click', () => switchTab('calculator'));
+      elements.linkToCalc.addEventListener('click', (e) => {
+        e.preventDefault();
+        switchTab('calculator');
+      });
+
+      // --- Food Logger Event Listeners ---
+      // Segmented Toggles
+      elements.energyKcalOpt.addEventListener('click', () => setLogEnergyUnit('kcal'));
+      elements.energyKjOpt.addEventListener('click', () => setLogEnergyUnit('kJ'));
+      elements.massGOpt.addEventListener('click', () => setLogMassUnit('g'));
+      elements.massOzOpt.addEventListener('click', () => setLogMassUnit('oz'));
+
+      // Logger inputs trigger real-time math calculations blueprint updates
+      const loggerInputs = [elements.foodName, elements.foodEnergy, elements.foodMass, elements.foodProtein, elements.foodCarbs, elements.foodFats];
+      loggerInputs.forEach(el => {
+        el.addEventListener('input', updateLiveMathPreview);
+      });
+
+      // Optional Macros Toggle
+      elements.macrosToggleBtn.addEventListener('click', toggleOptionalMacros);
+
+      // Log Form Submission
+      elements.foodLogForm.addEventListener('submit', logFoodEntry);
+
+      // --- History View Event Listeners ---
+      elements.tabHistory.addEventListener('click', () => switchTab('history'));
+      elements.historySearchInput.addEventListener('input', renderHistoryTable);
+      elements.btnExportCsv.addEventListener('click', exportCSV);
+      elements.btnExportJson.addEventListener('click', exportJSON);
+      elements.btnImportJson.addEventListener('click', () => elements.importJsonFile.click());
+      elements.importJsonFile.addEventListener('change', importJSON);
+    }
+
+    // Toggle Sex selection
+    function setSex(val) {
+      elements.sex.value = val;
+      if (val === 'male') {
+        elements.sexMaleOpt.classList.add('active');
+        elements.sexFemaleOpt.classList.remove('active');
+      } else {
+        elements.sexFemaleOpt.classList.add('active');
+        elements.sexMaleOpt.classList.remove('active');
+      }
+      calculate();
+    }
+
+    // Toggle Height Unit
+    function setHeightUnit(val) {
+      if (heightUnit === val) return;
+      heightUnit = val;
+
+      if (val === 'metric') {
+        elements.heightMetricOpt.classList.add('active');
+        elements.heightImperialOpt.classList.remove('active');
+        elements.heightMetricContainer.style.display = 'block';
+        elements.heightImperialContainer.style.display = 'none';
+
+        // Convert current imperial to metric
+        const ft = parseFloat(elements.heightFt.value) || 0;
+        const inch = parseFloat(elements.heightIn.value) || 0;
+        if (ft > 0) {
+          const totalInches = (ft * 12) + inch;
+          elements.heightCm.value = Math.round(totalInches * 2.54);
+        }
+      } else {
+        elements.heightImperialOpt.classList.add('active');
+        elements.heightMetricOpt.classList.remove('active');
+        elements.heightMetricContainer.style.display = 'none';
+        elements.heightImperialContainer.style.display = 'flex';
+
+        // Convert current metric to imperial
+        const cm = parseFloat(elements.heightCm.value) || 0;
+        if (cm > 0) {
+          const totalInches = cm / 2.54;
+          const ft = Math.floor(totalInches / 12);
+          const inch = Math.round(totalInches % 12);
+          elements.heightFt.value = ft;
+          elements.heightIn.value = inch === 12 ? 0 : inch;
+          if (inch === 12) elements.heightFt.value = ft + 1;
+        }
+      }
+      calculate();
+    }
+
+    // Toggle Weight Unit
+    function setWeightUnit(val) {
+      if (weightUnit === val) return;
+      weightUnit = val;
+
+      const currentVal = parseFloat(elements.weight.value) || 0;
+
+      if (val === 'metric') {
+        elements.weightMetricOpt.classList.add('active');
+        elements.weightImperialOpt.classList.remove('active');
+        elements.weightUnitLabel.textContent = 'kg';
+        elements.weight.min = 30;
+        elements.weight.max = 300;
+
+        if (currentVal > 0) {
+          elements.weight.value = (currentVal * 0.45359237).toFixed(1);
+        }
+      } else {
+        elements.weightImperialOpt.classList.add('active');
+        elements.weightMetricOpt.classList.remove('active');
+        elements.weightUnitLabel.textContent = 'lbs';
+        elements.weight.min = 65;
+        elements.weight.max = 660;
+
+        if (currentVal > 0) {
+          elements.weight.value = (currentVal / 0.45359237).toFixed(1);
+        }
+      }
+      calculate();
+    }
+
+    // Toggle selected Goal Target Card
+    function setGoalType(type) {
+      activeGoalType = type;
+      [elements.goalCut, elements.goalMaintain, elements.goalBulk].forEach(card => card.classList.remove('active'));
+      
+      let activeCard;
+      if (type === 'cutting') activeCard = elements.goalCut;
+      else if (type === 'maintenance') activeCard = elements.goalMaintain;
+      else activeCard = elements.goalBulk;
+      
+      activeCard.classList.add('active');
+      
+      // Update UI displays based on selected goal
+      updateTargetDisplay();
+    }
+
+    // Main Calculation Logic
+    function calculate() {
+      // 1. Get Sanitized Inputs
+      const ageVal = parseInt(elements.age.value) || 0;
+      const sexVal = elements.sex.value;
+      const activityVal = elements.activity.value;
+
+      // Extract Height in cm
+      let heightCmVal = 0;
+      if (heightUnit === 'metric') {
+        heightCmVal = parseFloat(elements.heightCm.value) || 0;
+      } else {
+        const ft = parseFloat(elements.heightFt.value) || 0;
+        const inch = parseFloat(elements.heightIn.value) || 0;
+        heightCmVal = ((ft * 12) + inch) * 2.54;
+      }
+
+      // Extract Weight in kg
+      let weightKgVal = 0;
+      const rawWeight = parseFloat(elements.weight.value) || 0;
+      if (weightUnit === 'metric') {
+        weightKgVal = rawWeight;
+      } else {
+        weightKgVal = rawWeight * 0.45359237;
+      }
+
+      // Basic validation check to avoid NaN values
+      if (ageVal <= 0 || heightCmVal <= 0 || weightKgVal <= 0) {
+        return;
+      }
+
+      // 2. Mifflin-St Jeor Equation for BMR
+      let bmrVal = 0;
+      if (sexVal === 'male') {
+        bmrVal = (10 * weightKgVal) + (6.25 * heightCmVal) - (5 * ageVal) + 5;
+      } else {
+        bmrVal = (10 * weightKgVal) + (6.25 * heightCmVal) - (5 * ageVal) - 161;
+      }
+
+      // 3. TDEE based on Activity Multiplier
+      const multiplier = ACTIVITY_MULTIPLIERS[activityVal] || 1.2;
+      const tdeeVal = bmrVal * multiplier;
+
+      // Round calculations
+      currentCalculation.bmr = Math.round(bmrVal);
+      currentCalculation.tdee = Math.round(tdeeVal);
+      currentCalculation.maintenance = currentCalculation.tdee;
+      currentCalculation.cutting = currentCalculation.tdee - 500;
+      currentCalculation.bulking = currentCalculation.tdee + 500;
+
+      // 4. Update DOM values
+      elements.bmrVal.textContent = currentCalculation.bmr.toLocaleString();
+      elements.bmrDescVal.textContent = currentCalculation.bmr.toLocaleString();
+      elements.tdeeDescVal.textContent = currentCalculation.tdee.toLocaleString();
+      
+      elements.caloriesMaintain.textContent = currentCalculation.maintenance.toLocaleString();
+      elements.caloriesCut.textContent = currentCalculation.cutting.toLocaleString();
+      elements.caloriesBulk.textContent = currentCalculation.bulking.toLocaleString();
+
+      updateTargetDisplay();
+    }
+
+    // Update dynamic sections based on active target goal
+    function updateTargetDisplay() {
+      let targetCalories = 0;
+      if (activeGoalType === 'cutting') {
+        targetCalories = currentCalculation.cutting;
+      } else if (activeGoalType === 'maintenance') {
+        targetCalories = currentCalculation.maintenance;
+      } else {
+        targetCalories = currentCalculation.bulking;
+      }
+
+      // Update Gauge Content
+      elements.gaugeVal.textContent = targetCalories.toLocaleString();
+      
+      // Update Gauge SVG Circle ring offset
+      // Gauge circum = 2 * PI * r = 2 * 3.14159 * 70 = 439.8 (say 440)
+      // Cap max calories display representation at 5000 kcal for full ring
+      const maxValRepresentation = 5000;
+      const percentage = Math.min(targetCalories / maxValRepresentation, 1);
+      const dashoffset = 440 - (440 * percentage);
+      elements.gaugeProgress.style.strokeDashoffset = dashoffset;
+
+      // Dynamic color adjustment for TDEE Gauge ring
+      if (activeGoalType === 'cutting') {
+        elements.gaugeProgress.style.stroke = 'var(--macro-fats)'; // rose color
+      } else if (activeGoalType === 'maintenance') {
+        elements.gaugeProgress.style.stroke = 'var(--primary)'; // blue color
+      } else {
+        elements.gaugeProgress.style.stroke = 'var(--accent-emerald)'; // emerald color
+      }
+
+      // 5. Calculate & Update Macros
+      const presetName = elements.macroPreset.value;
+      const split = MACRO_PRESETS[presetName] || MACRO_PRESETS.balanced;
+
+      // Update Percent labels
+      elements.pctProtein.textContent = `${Math.round(split.p * 100)}%`;
+      elements.pctCarbs.textContent = `${Math.round(split.c * 100)}%`;
+      elements.pctFats.textContent = `${Math.round(split.f * 100)}%`;
+
+      // Grams Calculations
+      // Protein: 4 kcal/g, Carbs: 4 kcal/g, Fats: 9 kcal/g
+      const proteinGrams = Math.round((targetCalories * split.p) / 4);
+      const carbsGrams = Math.round((targetCalories * split.c) / 4);
+      const fatsGrams = Math.round((targetCalories * split.f) / 9);
+
+      elements.valProtein.innerHTML = `${proteinGrams}<span>g</span>`;
+      elements.valCarbs.innerHTML = `${carbsGrams}<span>g</span>`;
+      elements.valFats.innerHTML = `${fatsGrams}<span>g</span>`;
+
+      // Update bar widths
+      elements.barProtein.style.width = `${split.p * 100}%`;
+      elements.barCarbs.style.width = `${split.c * 100}%`;
+      elements.barFats.style.width = `${split.f * 100}%`;
+    }
+
+    // Save Daily Goal selection to localStorage (matching requested schema)
+    function saveGoalToLocalStorage() {
+      const ageVal = parseInt(elements.age.value) || 0;
+      const sexVal = elements.sex.value;
+      const activityVal = elements.activity.value;
+
+      // Calculate heights and weights in standard metric system to match schema
+      let heightCmVal = 0;
+      if (heightUnit === 'metric') {
+        heightCmVal = parseFloat(elements.heightCm.value) || 0;
+      } else {
+        const ft = parseFloat(elements.heightFt.value) || 0;
+        const inch = parseFloat(elements.heightIn.value) || 0;
+        heightCmVal = Math.round(((ft * 12) + inch) * 2.54);
+      }
+
+      let weightKgVal = 0;
+      const rawWeight = parseFloat(elements.weight.value) || 0;
+      if (weightUnit === 'metric') {
+        weightKgVal = rawWeight;
+      } else {
+        weightKgVal = Math.round(rawWeight * 0.45359237 * 10) / 10;
+      }
+
+      let dailyCalorieGoal = 0;
+      if (activeGoalType === 'cutting') {
+        dailyCalorieGoal = currentCalculation.cutting;
+      } else if (activeGoalType === 'maintenance') {
+        dailyCalorieGoal = currentCalculation.maintenance;
+      } else {
+        dailyCalorieGoal = currentCalculation.bulking;
+      }
+
+      // Macros calculations
+      const presetName = elements.macroPreset.value;
+      const split = MACRO_PRESETS[presetName] || MACRO_PRESETS.balanced;
+      const proteinGrams = Math.round((dailyCalorieGoal * split.p) / 4);
+      const carbsGrams = Math.round((dailyCalorieGoal * split.c) / 4);
+      const fatsGrams = Math.round((dailyCalorieGoal * split.f) / 9);
+
+      // Create payload matching PROJECT.md schema exactly
+      const userGoalsPayload = {
+        age: ageVal,
+        sex: sexVal,
+        height: heightCmVal,
+        weight: weightKgVal,
+        activityLevel: activityVal,
+        dailyCalorieGoal: dailyCalorieGoal,
+        bmr: currentCalculation.bmr,
+        tdee: currentCalculation.tdee,
+        macroSplits: {
+          protein: proteinGrams,
+          carbs: carbsGrams,
+          fats: fatsGrams
+        }
+      };
+
+      // Save to localStorage under key "user_goals"
+      localStorage.setItem('user_goals', JSON.stringify(userGoalsPayload));
+
+      // Update Dashboard baseline totals instantly
+      updateDashboardTotals();
+
+      // Show Custom Success Toast notification
+      showToast();
+    }
+
+    // Load goals from local storage on bootstrap
+    function loadSavedGoal() {
+      const savedGoalJson = localStorage.getItem('user_goals');
+      if (savedGoalJson) {
+        try {
+          const goalData = JSON.parse(savedGoalJson);
+          
+          // Pre-fill inputs
+          elements.age.value = goalData.age || 25;
+          setSex(goalData.sex || 'male');
+          
+          // Use standard Metric internally
+          elements.heightCm.value = goalData.height || 175;
+          elements.weight.value = goalData.weight || 70;
+          
+          if (goalData.activityLevel) {
+            elements.activity.value = goalData.activityLevel;
+          }
+
+          // Compute matching goal offsets to find active selection
+          calculate();
+
+          // Identify if dailyCalorieGoal was a cut, maintain or bulk
+          const calculatedTdee = Math.round(goalData.tdee);
+          const savedTargetCal = goalData.dailyCalorieGoal;
+
+          if (savedTargetCal === calculatedTdee - 500) {
+            setGoalType('cutting');
+          } else if (savedTargetCal === calculatedTdee + 500) {
+            setGoalType('bulking');
+          } else {
+            setGoalType('maintenance');
+          }
+        } catch (e) {
+          console.error("Failed to parse user_goals payload from localStorage", e);
+        }
+      }
+    }
+
+    // Success Toast display timing
+    function showToast() {
+      elements.saveToast.classList.add('show');
+      setTimeout(() => {
+        elements.saveToast.classList.remove('show');
+      }, 3500);
+    }
+
+    // --- Tab view switcher ---
+    function switchTab(tabId) {
+      activeTab = tabId;
+      // Remove active classes from all tabs and views
+      elements.tabTracker.classList.remove('active');
+      elements.tabCalculator.classList.remove('active');
+      elements.tabHistory.classList.remove('active');
+      
+      elements.trackerView.classList.remove('active');
+      elements.calculatorView.classList.remove('active');
+      elements.historyView.classList.remove('active');
+
+      if (tabId === 'tracker') {
+        elements.tabTracker.classList.add('active');
+        elements.trackerView.classList.add('active');
+        updateDashboardTotals();
+      } else if (tabId === 'calculator') {
+        elements.tabCalculator.classList.add('active');
+        elements.calculatorView.classList.add('active');
+      } else if (tabId === 'history') {
+        elements.tabHistory.classList.add('active');
+        elements.historyView.classList.add('active');
+        renderHistoryTable();
+      }
+    }
+
+    // --- Food Logger Helpers ---
+    function setLogEnergyUnit(unit) {
+      elements.energyUnit.value = unit;
+      if (unit === 'kcal') {
+        elements.energyKcalOpt.classList.add('active');
+        elements.energyKjOpt.classList.remove('active');
+      } else {
+        elements.energyKjOpt.classList.add('active');
+        elements.energyKcalOpt.classList.remove('active');
+      }
+      updateLiveMathPreview();
+    }
+
+    // Toggle mass unit inside the food logger
+    function setLogMassUnit(unit) {
+      elements.massUnit.value = unit;
+      if (unit === 'g') {
+        elements.massGOpt.classList.add('active');
+        elements.massOzOpt.classList.remove('active');
+      } else {
+        elements.massOzOpt.classList.add('active');
+        elements.massGOpt.classList.remove('active');
+      }
+      updateLiveMathPreview();
+    }
+
+    // Expand/Collapse optional macros container
+    function toggleOptionalMacros() {
+      const container = elements.optionalMacrosContainer;
+      const isHidden = container.style.display === 'none';
+      if (isHidden) {
+        container.style.display = 'block';
+        elements.macrosToggleBtn.classList.add('expanded');
+      } else {
+        container.style.display = 'none';
+        elements.macrosToggleBtn.classList.remove('expanded');
+      }
+    }
+
+    // Conversion Constants
+    const KCAL_TO_KJ = 4.184;
+    const OZ_TO_GRAMS = 28.3495;
+
+    function round1Dec(val) {
+      return Math.round(val * 10) / 10;
+    }
+
+    function convertToKcal(val, unit) {
+      if (unit === 'kJ') {
+        return val / KCAL_TO_KJ;
+      }
+      return val;
+    }
+
+    function convertToGrams(val, unit) {
+      if (unit === 'oz') {
+        return val * OZ_TO_GRAMS;
+      }
+      return val;
+    }
+
+    // Update real-time conversion math blueprint display
+    function updateLiveMathPreview() {
+      const name = elements.foodName.value.trim() || 'Food';
+      const rawEnergy = parseFloat(elements.foodEnergy.value) || 0;
+      const energyUnitVal = elements.energyUnit.value;
+      const rawMass = parseFloat(elements.foodMass.value) || 0;
+      const massUnitVal = elements.massUnit.value;
+
+      const pPer100 = parseFloat(elements.foodProtein.value) || 0;
+      const cPer100 = parseFloat(elements.foodCarbs.value) || 0;
+      const fPer100 = parseFloat(elements.foodFats.value) || 0;
+
+      const kcalPer100 = convertToKcal(rawEnergy, energyUnitVal);
+      const massGrams = convertToGrams(rawMass, massUnitVal);
+      const calories = (kcalPer100 * massGrams) / 100;
+
+      let html = `<div class="preview-item"><strong>Preview entry for:</strong> <em>${name}</em></div>`;
+
+      if (rawEnergy > 0) {
+        if (energyUnitVal === 'kJ') {
+          html += `<div class="preview-item"><strong>Energy Conversion:</strong> ${rawEnergy} kJ &divide; ${KCAL_TO_KJ} = ${round1Dec(kcalPer100)} kcal per 100g</div>`;
+        } else {
+          html += `<div class="preview-item"><strong>Energy:</strong> ${rawEnergy} kcal per 100g</div>`;
+        }
+      }
+
+      if (rawMass > 0) {
+        if (massUnitVal === 'oz') {
+          html += `<div class="preview-item"><strong>Mass Conversion:</strong> ${rawMass} oz &times; ${OZ_TO_GRAMS} = ${round1Dec(massGrams)}g</div>`;
+        } else {
+          html += `<div class="preview-item"><strong>Mass:</strong> ${rawMass}g</div>`;
+        }
+      }
+
+      if (rawEnergy > 0 && rawMass > 0) {
+        html += `<div class="preview-item highlight-cals"><strong>Formula:</strong> (${round1Dec(kcalPer100)} kcal &times; ${round1Dec(massGrams)}g) &divide; 100 = <strong>${Math.round(calories)} kcal consumed</strong></div>`;
+        
+        if (pPer100 > 0 || cPer100 > 0 || fPer100 > 0) {
+          const pTotal = (pPer100 * massGrams) / 100;
+          const cTotal = (cPer100 * massGrams) / 100;
+          const fTotal = (fPer100 * massGrams) / 100;
+          html += `<div class="preview-item" style="margin-top: 0.5rem; font-size: 0.8rem; border-top: 1px solid var(--card-border); padding-top: 0.5rem;">`;
+          html += `<strong>Macros Calculation:</strong><br>`;
+          if (pPer100 > 0) html += `• Protein: (${pPer100}g &times; ${round1Dec(massGrams)}g) &divide; 100 = ${round1Dec(pTotal)}g<br>`;
+          if (cPer100 > 0) html += `• Carbs: (${cPer100}g &times; ${round1Dec(massGrams)}g) &divide; 100 = ${round1Dec(cTotal)}g<br>`;
+          if (fPer100 > 0) html += `• Fats: (${fPer100}g &times; ${round1Dec(massGrams)}g) &divide; 100 = ${round1Dec(fTotal)}g<br>`;
+          html += `</div>`;
+        }
+      } else {
+        html += `<div class="preview-item" style="color: var(--text-muted);">Awaiting numeric inputs for Energy and Mass...</div>`;
+      }
+
+      elements.liveMathPreview.innerHTML = html;
+    }
+
+    // Log Form Submission Handler
+    function logFoodEntry(e) {
+      if (e) e.preventDefault();
+
+      const name = elements.foodName.value.trim();
+      const rawEnergy = parseFloat(elements.foodEnergy.value);
+      const energyUnitVal = elements.energyUnit.value;
+      const rawMass = parseFloat(elements.foodMass.value);
+      const massUnitVal = elements.massUnit.value;
+
+      // Guard: all three required fields must be non-empty, finite numbers > 0.
+      // isNaN catches empty strings parsed as NaN; the positivity check prevents
+      // zero-calorie phantom entries from polluting the log totals.
+      if (!name) return;
+      if (isNaN(rawEnergy) || !isFinite(rawEnergy) || rawEnergy < 0) return;
+      if (isNaN(rawMass)   || !isFinite(rawMass)   || rawMass   <= 0) return;
+
+      // Optional macro fields: guard against NaN, Infinity, and negative values.
+      const pPer100 = Math.max(0, parseFloat(elements.foodProtein.value) || 0);
+      const cPer100 = Math.max(0, parseFloat(elements.foodCarbs.value)   || 0);
+      const fPer100 = Math.max(0, parseFloat(elements.foodFats.value)    || 0);
+
+      const kcal100 = convertToKcal(rawEnergy, energyUnitVal);
+      const massG = convertToGrams(rawMass, massUnitVal);
+
+      // Extra safety net: if unit conversion itself produced a non-finite result,
+      // abort rather than storing NaN/Infinity in localStorage.
+      if (!isFinite(kcal100) || !isFinite(massG)) return;
+
+      const caloriesVal = Math.round((kcal100 * massG) / 100);
+      const proteinVal = round1Dec((pPer100 * massG) / 100);
+      const carbsVal = round1Dec((cPer100 * massG) / 100);
+      const fatsVal = round1Dec((fPer100 * massG) / 100);
+
+      const entry = {
+        id: Date.now().toString(),
+        timestamp: new Date().toISOString(),
+        name: name,
+        calories: caloriesVal,
+        protein: proteinVal,
+        carbs: carbsVal,
+        fats: fatsVal,
+        massGrams: Math.round(massG)
+      };
+
+      let foodLog = [];
+      const savedLog = localStorage.getItem('food_log');
+      if (savedLog) {
+        try {
+          foodLog = JSON.parse(savedLog);
+        } catch (err) {
+          console.error("Failed to parse food_log from localStorage", err);
+        }
+      }
+      foodLog.push(entry);
+      localStorage.setItem('food_log', JSON.stringify(foodLog));
+
+      // Reset form text/number fields
+      elements.foodName.value = '';
+      elements.foodEnergy.value = '';
+      elements.foodMass.value = '';
+      elements.foodProtein.value = '';
+      elements.foodCarbs.value = '';
+      elements.foodFats.value = '';
+
+      updateLiveMathPreview();
+      showLogToast();
+      updateDashboardTotals();
+    }
+
+    // Delete Food Log Entry
+    function deleteFoodEntry(id) {
+      let foodLog = [];
+      const savedLog = localStorage.getItem('food_log');
+      if (savedLog) {
+        try {
+          foodLog = JSON.parse(savedLog);
+        } catch (err) {
+          console.error("Failed to parse food_log from localStorage", err);
+        }
+      }
+      foodLog = foodLog.filter(item => item.id !== id);
+      localStorage.setItem('food_log', JSON.stringify(foodLog));
+
+      updateDashboardTotals();
+      if (activeTab === 'history') {
+        renderHistoryTable();
+      }
+    }
+
+    function showLogToast() {
+      const logToast = document.getElementById('log-toast');
+      logToast.classList.add('show');
+      setTimeout(() => {
+        logToast.classList.remove('show');
+      }, 3500);
+    }
+
+    // Refresh Dashboard Values and Render Today's Log
+    function updateDashboardTotals() {
+      let goalCalories = 2000;
+      let goalProtein = 150;
+      let goalCarbs = 200;
+      let goalFats = 67;
+      let hasGoals = false;
+
+      const savedGoalJson = localStorage.getItem('user_goals');
+      if (savedGoalJson) {
+        try {
+          const goalData = JSON.parse(savedGoalJson);
+          goalCalories = goalData.dailyCalorieGoal || 2000;
+          if (goalData.macroSplits) {
+            goalProtein = goalData.macroSplits.protein || 150;
+            goalCarbs = goalData.macroSplits.carbs || 200;
+            goalFats = goalData.macroSplits.fats || 67;
+          }
+          hasGoals = true;
+        } catch (e) {
+          console.error("Failed to parse user_goals for tracker", e);
+        }
+      }
+
+      if (hasGoals) {
+        elements.goalsWarningBanner.style.display = 'none';
+      } else {
+        elements.goalsWarningBanner.style.display = 'flex';
+      }
+
+      let foodLog = [];
+      const savedLog = localStorage.getItem('food_log');
+      if (savedLog) {
+        try {
+          foodLog = JSON.parse(savedLog);
+        } catch (e) {
+          console.error("Failed to parse food_log", e);
+        }
+      }
+
+      const today = new Date();
+      const todayStr = today.toDateString();
+      const todaysEntries = foodLog.filter(item => {
+        const itemDate = new Date(item.timestamp);
+        return itemDate.toDateString() === todayStr;
+      });
+
+      let totalCals = 0;
+      let totalProtein = 0;
+      let totalCarbs = 0;
+      let totalFats = 0;
+
+      todaysEntries.forEach(item => {
+        totalCals += item.calories || 0;
+        totalProtein += item.protein || 0;
+        totalCarbs += item.carbs || 0;
+        totalFats += item.fats || 0;
+      });
+
+      totalProtein = round1Dec(totalProtein);
+      totalCarbs = round1Dec(totalCarbs);
+      totalFats = round1Dec(totalFats);
+
+      elements.summaryGoalVal.textContent = goalCalories.toLocaleString();
+      elements.summaryEatenVal.textContent = totalCals.toLocaleString();
+
+      const remainingCals = goalCalories - totalCals;
+      elements.trackerGaugeVal.textContent = Math.abs(remainingCals).toLocaleString();
+      
+      // Guard against division by zero if goalCalories is somehow 0.
+      const pct = goalCalories > 0 ? Math.min(totalCals / goalCalories, 1) : 0;
+      const offset = 440 - (440 * pct);
+      elements.trackerGaugeProgress.style.strokeDashoffset = offset;
+
+      if (remainingCals >= 0) {
+        elements.trackerGaugeStatus.textContent = "kcal left";
+        elements.trackerGaugeProgress.style.stroke = 'var(--primary)';
+      } else {
+        elements.trackerGaugeStatus.textContent = "kcal over";
+        elements.trackerGaugeProgress.style.stroke = 'var(--macro-fats)';
+      }
+
+      elements.trackerRatioProtein.textContent = `${totalProtein} / ${goalProtein}g`;
+      elements.trackerRatioCarbs.textContent = `${totalCarbs} / ${goalCarbs}g`;
+      elements.trackerRatioFats.textContent = `${totalFats} / ${goalFats}g`;
+
+      const pPct = goalProtein > 0 ? Math.min((totalProtein / goalProtein) * 100, 100) : 0;
+      const cPct = goalCarbs > 0 ? Math.min((totalCarbs / goalCarbs) * 100, 100) : 0;
+      const fPct = goalFats > 0 ? Math.min((totalFats / goalFats) * 100, 100) : 0;
+
+      elements.trackerBarProtein.style.width = `${pPct}%`;
+      elements.trackerBarCarbs.style.width = `${cPct}%`;
+      elements.trackerBarFats.style.width = `${fPct}%`;
+
+      elements.foodLogList.innerHTML = '';
+      if (todaysEntries.length === 0) {
+        elements.foodLogList.innerHTML = `
+          <div class="empty-log-state" style="text-align: center; color: var(--text-muted); padding: 2rem 0; font-size: 0.95rem;">
+            No foods logged for today yet. Use the form to start tracking!
+          </div>
+        `;
+      } else {
+        todaysEntries.reverse().forEach(item => {
+          const itemTime = new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const card = document.createElement('div');
+          card.className = 'food-item-card';
+          card.innerHTML = `
+            <div class="food-item-info">
+              <span class="food-item-name">${item.name}</span>
+              <span class="food-item-meta">${itemTime} &bull; ${item.massGrams}g</span>
+              <span class="food-item-macros-micro">
+                <span style="color: var(--macro-protein);">P: ${item.protein}g</span>
+                <span style="color: var(--macro-carbs);">C: ${item.carbs}g</span>
+                <span style="color: var(--macro-fats);">F: ${item.fats}g</span>
+              </span>
+            </div>
+            <div class="food-item-right">
+              <span class="food-item-cals">${item.calories} kcal</span>
+              <button class="btn-delete-food" onclick="deleteFoodEntry('${item.id}')" title="Delete entry">
+                <svg viewBox="0 0 24 24"><path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/></svg>
+              </button>
+            </div>
+          `;
+          elements.foodLogList.appendChild(card);
+        });
+      }
+    }
+
+    // --- History Log Logic ---
+
+    // Render History Table rows with filtering
+    function renderHistoryTable() {
+      let foodLog = [];
+      const savedLog = localStorage.getItem('food_log');
+      if (savedLog) {
+        try {
+          foodLog = JSON.parse(savedLog);
+        } catch (e) {
+          console.error("Failed to parse food_log for history table", e);
+        }
+      }
+
+      // Sort chronological descending (most recent first)
+      foodLog.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+      const query = (elements.historySearchInput.value || '').toLowerCase().trim();
+      const filteredLog = foodLog.filter(item => (item.name || '').toLowerCase().includes(query));
+
+      elements.historyTableBody.innerHTML = '';
+
+      if (filteredLog.length === 0) {
+        elements.historyTableBody.innerHTML = `
+          <tr>
+            <td colspan="8" class="empty-history-state">
+              ${query ? 'No matching history entries found.' : 'No historical entries logged yet.'}
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      filteredLog.forEach(item => {
+        const dateObj = new Date(item.timestamp);
+        // Format date and time beautifully
+        const dateStr = dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        const timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>
+            <div style="font-weight: 600;">${dateStr}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">${timeStr}</div>
+          </td>
+          <td style="font-weight: 500;">${item.name}</td>
+          <td>${item.massGrams}g</td>
+          <td style="font-weight: 700;">${item.calories} kcal</td>
+          <td class="macro-col-p">${item.protein || 0}g</td>
+          <td class="macro-col-c">${item.carbs || 0}g</td>
+          <td class="macro-col-f">${item.fats || 0}g</td>
+          <td style="text-align: center;">
+            <button class="btn-delete-food" onclick="deleteFoodEntry('${item.id}')" title="Delete entry" style="margin: 0 auto;">
+              <svg viewBox="0 0 24 24"><path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/></svg>
+            </button>
+          </td>
+        `;
+        elements.historyTableBody.appendChild(tr);
+      });
+    }
+
+    // Export CSV with Console Log blueprints
+    function exportCSV() {
+      let foodLog = [];
+      const savedLog = localStorage.getItem('food_log');
+      if (savedLog) {
+        try {
+          foodLog = JSON.parse(savedLog);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      if (foodLog.length === 0) {
+        alert("There is no food log data to export!");
+        return;
+      }
+
+      // 1. Console logic tracing example requested by user
+      console.group("CSV Export Logic: Object Parsing Blueprint");
+      console.log("Parsing food log array to CSV layout. Total entries:", foodLog.length);
+      const sampleItem = foodLog[0];
+      const sampleDate = new Date(sampleItem.timestamp);
+      const sampleEscapedName = `"${sampleItem.name.replace(/"/g, '""')}"`;
+      console.log("Sample Input Object:", sampleItem);
+      console.log("Parsing Steps:\n" +
+                  `  - Parse ISO Timestamp: "${sampleItem.timestamp}" -> Date: ${sampleDate.toLocaleDateString()}, Time: ${sampleDate.toLocaleTimeString()}\n` +
+                  `  - Escape Double Quotes in Name: "${sampleItem.name}" -> ${sampleEscapedName}\n` +
+                  `  - Extract Values: Mass -> ${sampleItem.massGrams}g, Calories -> ${sampleItem.calories} kcal, Protein -> ${sampleItem.protein}g, Carbs -> ${sampleItem.carbs}g, Fats -> ${sampleItem.fats}g`);
+      console.log("Formatted CSV Row Sample:", [
+        sampleDate.toLocaleDateString(),
+        sampleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        sampleEscapedName,
+        sampleItem.massGrams,
+        sampleItem.calories,
+        sampleItem.protein || 0,
+        sampleItem.carbs || 0,
+        sampleItem.fats || 0
+      ].join(","));
+      console.groupEnd();
+
+      // 2. Generate and download CSV
+      const headers = ["Date", "Time", "Food Name", "Mass (g)", "Calories (kcal)", "Protein (g)", "Carbs (g)", "Fats (g)"];
+      const rows = [headers];
+
+      foodLog.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)); // Export chronological ascending
+
+      foodLog.forEach(item => {
+        const dateObj = new Date(item.timestamp);
+        const dateStr = dateObj.toLocaleDateString();
+        const timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const nameVal = `"${item.name.replace(/"/g, '""')}"`;
+
+        rows.push([
+          dateStr,
+          timeStr,
+          nameVal,
+          item.massGrams,
+          item.calories,
+          item.protein || 0,
+          item.carbs || 0,
+          item.fats || 0
+        ]);
+      });
+
+      const csvContent = rows.map(r => r.join(",")).join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `caloflow_food_log_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    // Export JSON Backup
+    function exportJSON() {
+      const state = {
+        user_goals: null,
+        food_log: []
+      };
+
+      const savedGoals = localStorage.getItem('user_goals');
+      if (savedGoals) {
+        try {
+          state.user_goals = JSON.parse(savedGoals);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      const savedLog = localStorage.getItem('food_log');
+      if (savedLog) {
+        try {
+          state.food_log = JSON.parse(savedLog);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      const jsonString = JSON.stringify(state, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `caloflow_backup_${new Date().toISOString().split('T')[0]}.json`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    // Import JSON Backup
+    function importJSON(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        try {
+          const data = JSON.parse(evt.target.result);
+          let success = false;
+
+          // Check if format is a full backup object
+          if (data && typeof data === 'object' && !Array.isArray(data)) {
+            // Full backup format
+            if (data.user_goals !== undefined || data.food_log !== undefined) {
+              if (data.user_goals) {
+                localStorage.setItem('user_goals', JSON.stringify(data.user_goals));
+              } else {
+                localStorage.removeItem('user_goals');
+              }
+
+              if (Array.isArray(data.food_log)) {
+                localStorage.setItem('food_log', JSON.stringify(data.food_log));
+              } else {
+                localStorage.setItem('food_log', JSON.stringify([]));
+              }
+              success = true;
+            }
+          } else if (Array.isArray(data)) {
+            // Partial legacy or direct food log backup format
+            // Verify items are food logs
+            const isValid = data.every(item => item && typeof item === 'object' && item.name !== undefined && item.calories !== undefined);
+            if (isValid) {
+              localStorage.setItem('food_log', JSON.stringify(data));
+              success = true;
+            }
+          }
+
+          if (success) {
+            // Refresh application state
+            loadSavedGoal();
+            calculate();
+            updateDashboardTotals();
+            if (activeTab === 'history') {
+              renderHistoryTable();
+            }
+            
+            // Show custom success toast
+            elements.importSuccessToast.classList.add('show');
+            setTimeout(() => {
+              elements.importSuccessToast.classList.remove('show');
+            }, 3500);
+          } else {
+            throw new Error("Invalid schema or missing required fields");
+          }
+        } catch (err) {
+          console.error("Backup restoration failed", err);
+          // Show custom error toast
+          elements.importErrorToastBody.textContent = err.message || "Invalid backup file format.";
+          elements.importErrorToast.classList.add('show');
+          setTimeout(() => {
+            elements.importErrorToast.classList.remove('show');
+          }, 3500);
+        } finally {
+          // Clear input file element selection so same file can be uploaded again
+          elements.importJsonFile.value = '';
+        }
+      };
+      reader.readAsText(file);
+    }
+  </script>
+
+  <script>
+    // ─── Offline / Online Status Banner ───────────────────────────────────────
+    // Reads navigator.onLine synchronously on load and also listens for the
+    // 'online' / 'offline' events fired by the browser when connectivity changes.
+    // NOTE: navigator.onLine can be true even with limited connectivity (e.g.,
+    // connected to LAN but no internet), but it correctly reflects the state
+    // tested by DevTools "Offline" throttle which is the spec'd acceptance test.
+    (function () {
+      const banner = document.getElementById('offline-banner');
+      if (!banner) return;
+
+      function updateOfflineBanner() {
+        if (navigator.onLine) {
+          banner.classList.remove('show');
+        } else {
+          banner.classList.add('show');
+        }
+      }
+
+      // Run once on page load
+      updateOfflineBanner();
+
+      // React to real-time connectivity changes
+      window.addEventListener('online',  updateOfflineBanner);
+      window.addEventListener('offline', updateOfflineBanner);
+    })();
+  </script>
+</body>
+</html>
